@@ -13,7 +13,23 @@ pip install numpy scipy scikit-image matplotlib
 
 import os
 from PIL import Image
-import torch
+import torch 
+from matplotlib import pyplot as plt
+import matplotlib.patches as patches
+from google.colab import drive
+
+"""2) Объявление переменных"""
+
+del imglist[192]
+del annolist[192]
+
+batch = 40
+
+matched = [0,0,0]
+falseAlarm = [0,0,0]
+trueBoxesCount = [0,0,0]
+missed = [0,0,0]
+thresholds = [0.5,0.75,0.9]
 
 """3) Для удобного и полного форматирования ввода и вывода модели загрузите набор служебных методов."""
 
@@ -27,7 +43,7 @@ ssd_model.to('cuda')
 ssd_model.eval()
 classes_to_labels = utils.get_coco_object_dictionary()
 
-"""4) Определение модели IoU"""
+"""4) Метрика Intersection-over-Union (IoU)"""
 
 def IoU(boxA, boxB):
     xA = max(boxA[0], boxB[0])
@@ -40,7 +56,9 @@ def IoU(boxA, boxB):
     IoU = interArea / float(boxAArea + boxBArea - interArea)
     return IoU
 
-def parse(anno,images):
+"""5) Парсинг аннотаций для набора данных VisDrone-Dataset"""
+
+def Parsing(anno,images):
     annotations = []
     for i in range(len(anno)):
         f = open(anno[i], 'r+')
@@ -83,7 +101,7 @@ def parse(anno,images):
         annotations.append(boxes)
     return annotations
 
-def equalClasses(trueClass,predictedClass):
+def EqualClasses(trueClass,predictedClass):
     if trueClass == predictedClass:
         return True
     elif trueClass == 'others':
@@ -91,9 +109,8 @@ def equalClasses(trueClass,predictedClass):
     else:
         return False
 
-"""Доступ и загрузка данных из Гугл Диска"""
+"""5) Доступ и загрузка данных из Гугл Диска"""
 
-from google.colab import drive
 drive.mount('/content/gdrive',force_remount = True)
 !cp /content/gdrive/'My Drive'/VisDrone2019-DET-train.zip .
 !unzip VisDrone2019-DET-train.zip
@@ -102,3 +119,60 @@ imglist = os.listdir('VisDrone2019-DET-train/images')
 annolist = os.listdir('VisDrone2019-DET-train/annotations')
 annolist = [line.replace('.jpg','.txt') for line in imglist]
 trueClasses = ['ignored regions', 'person', 'person', 'bicycle', 'car', 'car', 'truck', 'tricycle', 'awning-tricycle', 'bus', 'motorcycle', 'others']
+
+"""Представление обнаруженных классов на изображении"""
+
+for image_idx in range(len(best_results_per_input)):
+    fig, ax = plt.subplots(1)
+    # Show original, denormalized image...
+    image = inputs[image_idx] / 4 + 0.5
+    ax.imshow(image)
+    # ...with detections
+    bboxes, classes, confidences = best_results_per_input[image_idx]
+    for idx in range(len(bboxes)):
+        left, bot, right, top = bboxes[idx]
+        x, y, w, h = [val * 300 for val in [left, bot, right - left, top - bot]]
+        rect = patches.Rectangle((x, y), w, h, linewidth=1, edgecolor='r', facecolor='none')
+        ax.add_patch(rect)
+        ax.text(x, y, "{} {:.0f}%".format(classes_to_labels[classes[idx] - 1], confidences[idx]*100), bbox=dict(facecolor='white', alpha=0.5))
+plt.show()
+
+"""6) Сбор статискики для подсчета средней точности детектирования объектов  
+порог IoU | точность | пропущенно | ложные данные |
+"""
+
+for i in range(3):
+    for j in range(14):
+        images = [str('VisDrone2019-DET-val/images/' + image) for image in imglist[j*batch:(j+1)*batch]]
+        annotations = [str('VisDrone2019-DET-val/annotations/' + annotation) for annotation in annolist[j*batch:(j+1)*batch]]
+        trueBoxes = Parsing(annotations,images)
+
+        inputs = [utils.prepare_input(image) for image in images]
+        tensor = utils.prepare_tensor(inputs, precision == 'fp16')
+
+        with torch.no_grad():
+            detections_batch = ssd_model(tensor)
+
+        results_per_input = utils.decode_results(detections_batch)
+        best_results_per_input = [utils.pick_best(results, 0.40) for results in results_per_input]
+
+        for image_idx in range(len(best_results_per_input)):
+            predictedBoxes, predictedClasses, c = best_results_per_input[image_idx]
+            for idx in range(len(predictedBoxes)):
+                flag = False 
+                for box in trueBoxes[image_idx]:
+                    trueBox = [box[0],box[1],box[0]+box[2],box[1]+box[3]]
+                    trueClass = trueClasses[box[4]]
+                    if IoU(predictedBoxes[idx],trueBox) > thresholds[i] and EqualClasses(trueClass,classes_to_labels[predictedClasses[idx] - 1]):
+                        flag = True
+                        break
+                if flag:
+                    matched[i] = matched[i] + 1
+                else:
+                    falseAlarm[i] = falseAlarm[i] + 1
+            trueBoxesCount[i] = trueBoxesCount[i] + len(trueBoxes[image_idx])
+    missed[i] = trueBoxesCount[i] - matched[i]
+
+
+
+print(thresholds, matched, falseAlarm, missed, trueBoxesCount)
