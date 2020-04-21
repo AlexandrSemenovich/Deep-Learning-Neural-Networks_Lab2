@@ -17,19 +17,7 @@ import torch
 from matplotlib import pyplot as plt
 import matplotlib.patches as patches
 from google.colab import drive
-
-"""2) Объявление переменных"""
-
-del imglist[192]
-del annolist[192]
-
-batch = 40
-
-matched = [0,0,0]
-falseAlarm = [0,0,0]
-trueBoxesCount = [0,0,0]
-missed = [0,0,0]
-thresholds = [0.5,0.75,0.9]
+!ls
 
 """3) Для удобного и полного форматирования ввода и вывода модели загрузите набор служебных методов."""
 
@@ -42,6 +30,10 @@ utils = torch.hub.load('NVIDIA/DeepLearningExamples:torchhub', 'nvidia_ssd_proce
 ssd_model.to('cuda')
 ssd_model.eval()
 classes_to_labels = utils.get_coco_object_dictionary()
+trueClasses = ['ignored regions', 'person', 'person', 'bicycle', 'car', 'car', 'truck', 'tricycle', 'awning-tricycle', 'bus', 'motorcycle', 'others']  
+allClasses = list(dict.fromkeys(classes_to_labels+trueClasses))
+dictClasses = {key: [[0,0,0],[0,0,0],[0,0,0]] for key in allClasses}
+!ls
 
 """4) Метрика Intersection-over-Union (IoU)"""
 
@@ -51,9 +43,9 @@ def IoU(boxA, boxB):
     xB = min(boxA[2], boxB[2])
     yB = min(boxA[3], boxB[3])
     interArea = max(0, xB - xA) * max(0, yB - yA )
-    boxAArea = (boxA[2] - boxA[0]) * (boxA[3] - boxA[1])
-    boxBArea = (boxB[2] - boxB[0]) * (boxB[3] - boxB[1])
-    IoU = interArea / float(boxAArea + boxBArea - interArea)
+    A_boxArea = (boxA[2] - boxA[0]) * (boxA[3] - boxA[1])
+    B_boxArea = (boxB[2] - boxB[0]) * (boxB[3] - boxB[1])
+    IoU = interArea / float(A_boxArea + B_boxArea - interArea)
     return IoU
 
 """5) Парсинг аннотаций для набора данных VisDrone-Dataset"""
@@ -112,34 +104,28 @@ def EqualClasses(trueClass,predictedClass):
 """5) Доступ и загрузка данных из Гугл Диска"""
 
 drive.mount('/content/gdrive',force_remount = True)
-!cp /content/gdrive/'My Drive'/VisDrone2019-DET-train.zip .
-!unzip VisDrone2019-DET-train.zip
+!cp /content/gdrive/'My Drive'/VisDrone2019-DET-val3.zip .
+!unzip VisDrone2019-DET-val3.zip
+!ls
 
-imglist = os.listdir('VisDrone2019-DET-train/images')
-annolist = os.listdir('VisDrone2019-DET-train/annotations')
+imglist = os.listdir('VisDrone2019-DET-val/images')
 annolist = [line.replace('.jpg','.txt') for line in imglist]
-trueClasses = ['ignored regions', 'person', 'person', 'bicycle', 'car', 'car', 'truck', 'tricycle', 'awning-tricycle', 'bus', 'motorcycle', 'others']
-
-"""Представление обнаруженных классов на изображении"""
-
-for image_idx in range(len(best_results_per_input)):
-    fig, ax = plt.subplots(1)
-    # Show original, denormalized image...
-    image = inputs[image_idx] / 4 + 0.5
-    ax.imshow(image)
-    # ...with detections
-    bboxes, classes, confidences = best_results_per_input[image_idx]
-    for idx in range(len(bboxes)):
-        left, bot, right, top = bboxes[idx]
-        x, y, w, h = [val * 300 for val in [left, bot, right - left, top - bot]]
-        rect = patches.Rectangle((x, y), w, h, linewidth=1, edgecolor='r', facecolor='none')
-        ax.add_patch(rect)
-        ax.text(x, y, "{} {:.0f}%".format(classes_to_labels[classes[idx] - 1], confidences[idx]*100), bbox=dict(facecolor='white', alpha=0.5))
-plt.show()
+!ls
 
 """6) Сбор статискики для подсчета средней точности детектирования объектов  
-порог IoU | точность | пропущенно | ложные данные | количество выделенных ячеек
+порог IoU | точность | пропущенно | ложные данные |
 """
+
+import matplotlib.pyplot as plt
+import pandas as pd
+from pandas.plotting import table
+
+del imglist[515]
+del annolist[515]
+
+batch = 40
+
+thresholds = [0.5,0.75,0.9]
 
 for i in range(3):
     for j in range(14):
@@ -167,12 +153,31 @@ for i in range(3):
                         flag = True
                         break
                 if flag:
-                    matched[i] = matched[i] + 1
+                    dictClasses[classes_to_labels[predictedClasses[idx] - 1]][i][0] += 1
                 else:
-                    falseAlarm[i] = falseAlarm[i] + 1
-            trueBoxesCount[i] = trueBoxesCount[i] + len(trueBoxes[image_idx])
-    missed[i] = trueBoxesCount[i] - matched[i]
+                    dictClasses[classes_to_labels[predictedClasses[idx] - 1]][i][1] += 1
+            for box in trueBoxes[image_idx]:
+              trueClass = trueClasses[box[4]]
+              dictClasses[trueClass][i][2] += 1
 
+allTrueBoxes = [0,0,0]
+allFalseAlarms = [0,0,0]
+allMatches = [0,0,0]
 
+for i in range(3):
+    for Class in allClasses:
+      allMatches[i] += dictClasses[Class][i][0]
+      allFalseAlarms[i] += dictClasses[Class][i][1]
+      allTrueBoxes[i] += dictClasses[Class][i][2]
 
-print(thresholds, matched, falseAlarm, missed, trueBoxesCount)
+Accuracies = [0,0,0]
+Missed = [0,0,0]
+
+for i in range(3):
+  Accuracies[i] = 100*allMatches[i]/allTrueBoxes[i]
+  Missed[i] = allTrueBoxes[i]-allMatches[i]
+
+summary = pd.DataFrame([Accuracies, allFalseAlarms, Missed], columns=['IoU 0.5','IoU 0.75','IoU 0.9'], index=['Accuracy, %','False Alarms','Missed'])
+
+pd.options.display.float_format = '{:,.2f}'.format
+summary
