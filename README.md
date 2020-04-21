@@ -13,6 +13,8 @@
 ![](https://github.com/AlexandrSemenovich/Deep-Learning-Neural-Networks_Lab2/blob/master/detected/7.JPG)
 ![](https://github.com/AlexandrSemenovich/Deep-Learning-Neural-Networks_Lab2/blob/master/detected/8.JPG)
 
-[пороги IoU][совпадение/точность][ложная тревога][пропущено][количество выделенных ячеек]
+Средняя точность детектирования объектов, количество пропущенных объектов, количество ложных тревог для порогов IoU = 0.5, 0.75, 0.9
+
+[пороги IoU][средняя точность][ложных тревог][пропущенных объектов][выделенных ячеек]
 
 ![](https://github.com/AlexandrSemenovich/Deep-Learning-Neural-Networks_Lab2/blob/master/detected/DataAnalysis.JPG)
