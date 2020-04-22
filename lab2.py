@@ -17,36 +17,33 @@ import torch
 from matplotlib import pyplot as plt
 import matplotlib.patches as patches
 from google.colab import drive
-!ls
+import pandas as pd
+from pandas.plotting import table
+import random as rnd
+import glob
 
-"""3) Для удобного и полного форматирования ввода и вывода модели загрузите набор служебных методов."""
+"""2) Загрузит модель SSD, предварительно обученную на наборе данных COCO из Torch Hub."""
 
 precision = 'fp32'
 ssd_model = torch.hub.load('NVIDIA/DeepLearningExamples:torchhub', 'nvidia_ssd', model_math=precision)
 utils = torch.hub.load('NVIDIA/DeepLearningExamples:torchhub', 'nvidia_ssd_processing_utils')
-
-"""2) Загрузит модель SSD, предварительно обученную на наборе данных COCO из Torch Hub."""
-
 ssd_model.to('cuda')
 ssd_model.eval()
 classes_to_labels = utils.get_coco_object_dictionary()
 trueClasses = ['ignored regions', 'person', 'person', 'bicycle', 'car', 'car', 'truck', 'tricycle', 'awning-tricycle', 'bus', 'motorcycle', 'others']  
 allClasses = list(dict.fromkeys(classes_to_labels+trueClasses))
 dictClasses = {key: [[0,0,0],[0,0,0],[0,0,0]] for key in allClasses}
+
+"""3) Доступ и загрузка данных из Гугл Диска"""
+
+drive.mount('/content/gdrive',force_remount = True)
+!cp /content/gdrive/'My Drive'/VisDrone2019-DET-val5.zip .
+!unzip VisDrone2019-DET-val5.zip
 !ls
 
-"""4) Метрика Intersection-over-Union (IoU)"""
-
-def IoU(boxA, boxB):
-    xA = max(boxA[0], boxB[0])
-    yA = max(boxA[1], boxB[1])
-    xB = min(boxA[2], boxB[2])
-    yB = min(boxA[3], boxB[3])
-    interArea = max(0, xB - xA) * max(0, yB - yA )
-    A_boxArea = (boxA[2] - boxA[0]) * (boxA[3] - boxA[1])
-    B_boxArea = (boxB[2] - boxB[0]) * (boxB[3] - boxB[1])
-    IoU = interArea / float(A_boxArea + B_boxArea - interArea)
-    return IoU
+imagelist = os.listdir('VisDrone2019-DET-val/images')
+annolist = [line.replace('.jpg','.txt') for line in imagelist]
+!ls
 
 """5) Парсинг аннотаций для набора данных VisDrone-Dataset"""
 
@@ -93,6 +90,19 @@ def Parsing(anno,images):
         annotations.append(boxes)
     return annotations
 
+"""4) Метрика Intersection-over-Union (IoU)"""
+
+def IoU(boxA, boxB):
+    xA = max(boxA[0], boxB[0])
+    yA = max(boxA[1], boxB[1])
+    xB = min(boxA[2], boxB[2])
+    yB = min(boxA[3], boxB[3])
+    interArea = max(0, xB - xA) * max(0, yB - yA )
+    A_boxArea = (boxA[2] - boxA[0]) * (boxA[3] - boxA[1])
+    B_boxArea = (boxB[2] - boxB[0]) * (boxB[3] - boxB[1])
+    IoU = interArea / float(A_boxArea + B_boxArea - interArea)
+    return IoU
+
 def EqualClasses(trueClass,predictedClass):
     if trueClass == predictedClass:
         return True
@@ -101,26 +111,11 @@ def EqualClasses(trueClass,predictedClass):
     else:
         return False
 
-"""5) Доступ и загрузка данных из Гугл Диска"""
-
-drive.mount('/content/gdrive',force_remount = True)
-!cp /content/gdrive/'My Drive'/VisDrone2019-DET-val3.zip .
-!unzip VisDrone2019-DET-val3.zip
-!ls
-
-imglist = os.listdir('VisDrone2019-DET-val/images')
-annolist = [line.replace('.jpg','.txt') for line in imglist]
-!ls
-
 """6) Сбор статискики для подсчета средней точности детектирования объектов  
 порог IoU | точность | пропущенно | ложные данные |
 """
 
-import matplotlib.pyplot as plt
-import pandas as pd
-from pandas.plotting import table
-
-del imglist[515]
+del imagelist[515]
 del annolist[515]
 
 batch = 40
@@ -129,7 +124,7 @@ thresholds = [0.5,0.75,0.9]
 
 for i in range(3):
     for j in range(14):
-        images = [str('VisDrone2019-DET-val/images/' + image) for image in imglist[j*batch:(j+1)*batch]]
+        images = [str('VisDrone2019-DET-val/images/' + image) for image in imagelist[j*batch:(j+1)*batch]]
         annotations = [str('VisDrone2019-DET-val/annotations/' + annotation) for annotation in annolist[j*batch:(j+1)*batch]]
         trueBoxes = Parsing(annotations,images)
 
@@ -181,3 +176,30 @@ summary = pd.DataFrame([Accuracies, allFalseAlarms, Missed], columns=['IoU 0.5',
 
 pd.options.display.float_format = '{:,.2f}'.format
 summary
+
+"""4) Выполняем качественный анализ работы сети на снимках, полученных с
+беспилотных летательных аппаратов
+"""
+
+for image_idx in range(2,8):
+    fig, ax = plt.subplots(1)
+    # Show original, denormalized image...
+    image = inputs[image_idx] / 2 + 0.5
+    ax.imshow(image)
+    # ...with detections
+    bboxes, classes, confidences = best_results_per_input[image_idx]
+    for idx in range(len(bboxes)):
+        left, bot, right, top = bboxes[idx]
+        x, y, w, h = [val * 300 for val in [left, bot, right - left, top - bot]]
+        rect = patches.Rectangle((x, y), w, h, linewidth=1, edgecolor='r', facecolor='none')
+        ax.add_patch(rect)
+        ax.text(x, y, "{} {:.0f}%".format(classes_to_labels[classes[idx] - 1], confidences[idx]*100), bbox=dict(facecolor='white', alpha=0.5))
+plt.show()
+
+for Class in allClasses:
+  for i in range(3):
+    matches = dictClasses[Class][i][0]
+    if matches>0:
+      dictClasses[Class][i][0] = matches/dictClasses[Class][i][2]
+      dictClasses[Class][i][2] = dictClasses[Class][i][2] - matches
+print(allClasses)
