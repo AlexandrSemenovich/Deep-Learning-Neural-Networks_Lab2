@@ -89,13 +89,14 @@ def Parsing(anno,images):
 """4) Метрика Intersection-over-Union (IoU)"""
 
 def IoU(boxA, boxB):
-    xA = max(boxA[0], boxB[0])
-    yA = max(boxA[1], boxB[1])
-    xB = min(boxA[2], boxB[2])
-    yB = min(boxA[3], boxB[3])
-    interArea = max(0, xB - xA) * max(0, yB - yA )
+    x1 = max(boxA[0], boxB[0])
+    y1 = max(boxA[1], boxB[1])
+    x2 = min(boxA[2], boxB[2])
+    y2 = min(boxA[3], boxB[3])
+    interArea = max(0, x2 - x1) * max(0, y2 - y1 )
     A_boxArea = (boxA[2] - boxA[0]) * (boxA[3] - boxA[1])
     B_boxArea = (boxB[2] - boxB[0]) * (boxB[3] - boxB[1])
+    union_area = A_boxArea + B_boxArea - interArea
     IoU = interArea / float(A_boxArea + B_boxArea - interArea)
     return IoU
 
@@ -195,34 +196,40 @@ for Class in allClasses:
       dictClasses[Class][i][0] = matches/dictClasses[Class][i][2]
       dictClasses[Class][i][2] = dictClasses[Class][i][2] - matches
 
+
+
 for Class in allClasses:
   for i in range(3):
     matches = dictClasses[Class][i][0]
     if matches>0:
-      dictClasses[Class][i][0] = matches*100
+      dictClasses[Class][i][0] = matches * 100
 
 allClasses = sorted(allClasses)
 
-list50 = [dictClasses[Class][0] for Class in allClasses]
-list75 = [dictClasses[Class][1] for Class in allClasses]
-list90 = [dictClasses[Class][2] for Class in allClasses]
+AimClasses = ["bicycle", "car", "truck", "person", "bus"] 
+
+list50 = [dictClasses[Class][0] for Class in AimClasses]
+list75 = [dictClasses[Class][1] for Class in AimClasses]
+list90 = [dictClasses[Class][2] for Class in AimClasses]
+for index, Class in enumerate(AimClasses):
+    if Class == 'person' : AimClasses[index] = 'people'
+
 
 pd.options.display.float_format = '{:,.4f}'.format
 pd.set_option('display.max_rows', 50)
-ClasswiseStat50 = pd.DataFrame(list50, columns=['точность','Ложных тревог','Пропущено'], index=allClasses)
-ClasswiseStat75 = pd.DataFrame(list75, columns=['точность','Ложных тревог','Пропущено'], index=allClasses)
-ClasswiseStat90 = pd.DataFrame(list90, columns=['точность','Ложных тревог','Пропущено'], index=allClasses)
+ClasswiseStat50 = pd.DataFrame(list50, columns=['Accuracy','False Alarm','Missed'], index=AimClasses)
+ClasswiseStat75 = pd.DataFrame(list75, columns=['Accuracy','False Alarm','Missed'], index=AimClasses)
+ClasswiseStat90 = pd.DataFrame(list90, columns=['Accuracy','False Alarm','Missed'], index=AimClasses)
 
 import matplotlib.pyplot as plt
 import pandas as pd
 from pandas.plotting import table
 
-ax = plt.subplot(111, frame_on=False)
-ax.xaxis.set_visible(False) 
-ax.yaxis.set_visible(False)  
-table(ax, ClasswiseStat90)
+ax = plt.subplot(111, frame_on=True)
+ax.xaxis.set_visible(False)
+ax.yaxis.set_visible(False)
 
-"""5) Выполняем качественный анализ работы сети на снимках, полученных с
-беспилотных летательных аппаратов
-"""
-
+ClasswiseStat50.to_csv('IoU05.csv', index=True, sep=';')
+ClasswiseStat75.to_csv('IoU075.csv', index=True, sep=';')
+ClasswiseStat90.to_csv('IoU09.csv', index=True, sep=';')
+table(ax, ClasswiseStat50)
