@@ -19,8 +19,6 @@ import matplotlib.patches as patches
 from google.colab import drive
 import pandas as pd
 from pandas.plotting import table
-import random as rnd
-import glob
 
 """2) Загрузит модель SSD, предварительно обученную на наборе данных COCO из Torch Hub."""
 
@@ -39,11 +37,9 @@ dictClasses = {key: [[0,0,0],[0,0,0],[0,0,0]] for key in allClasses}
 drive.mount('/content/gdrive',force_remount = True)
 !cp /content/gdrive/'My Drive'/VisDrone2019-DET-val5.zip .
 !unzip VisDrone2019-DET-val5.zip
-!ls
 
 imagelist = os.listdir('VisDrone2019-DET-val/images')
 annolist = [line.replace('.jpg','.txt') for line in imagelist]
-!ls
 
 """5) Парсинг аннотаций для набора данных VisDrone-Dataset"""
 
@@ -154,6 +150,21 @@ for i in range(3):
             for box in trueBoxes[image_idx]:
               trueClass = trueClasses[box[4]]
               dictClasses[trueClass][i][2] += 1
+for image_idx in range(2,4):
+    fig, ax = plt.subplots(1)
+    # Show original, denormalized image...
+    image = inputs[image_idx] / 2 + 0.5
+    ax.imshow(image)
+    # ...with detections
+    bboxes, classes, confidences = best_results_per_input[image_idx]
+    for idx in range(len(bboxes)):
+        left, bot, right, top = bboxes[idx]
+        x, y, w, h = [val * 300 for val in [left, bot, right - left, top - bot]]
+        rect = patches.Rectangle((x, y), w, h, linewidth=1, edgecolor='r', facecolor='none')
+        ax.add_patch(rect)
+        ax.text(x, y, "{} {:.0f}%".format(classes_to_labels[classes[idx] - 1], confidences[idx]*100), bbox=dict(facecolor='white', alpha=0.5))
+plt.show()
+
 
 allTrueBoxes = [0,0,0]
 allFalseAlarms = [0,0,0]
@@ -177,29 +188,41 @@ summary = pd.DataFrame([Accuracies, allFalseAlarms, Missed], columns=['IoU 0.5',
 pd.options.display.float_format = '{:,.2f}'.format
 summary
 
-"""4) Выполняем качественный анализ работы сети на снимках, полученных с
-беспилотных летательных аппаратов
-"""
-
-for image_idx in range(2,8):
-    fig, ax = plt.subplots(1)
-    # Show original, denormalized image...
-    image = inputs[image_idx] / 2 + 0.5
-    ax.imshow(image)
-    # ...with detections
-    bboxes, classes, confidences = best_results_per_input[image_idx]
-    for idx in range(len(bboxes)):
-        left, bot, right, top = bboxes[idx]
-        x, y, w, h = [val * 300 for val in [left, bot, right - left, top - bot]]
-        rect = patches.Rectangle((x, y), w, h, linewidth=1, edgecolor='r', facecolor='none')
-        ax.add_patch(rect)
-        ax.text(x, y, "{} {:.0f}%".format(classes_to_labels[classes[idx] - 1], confidences[idx]*100), bbox=dict(facecolor='white', alpha=0.5))
-plt.show()
-
 for Class in allClasses:
   for i in range(3):
     matches = dictClasses[Class][i][0]
     if matches>0:
       dictClasses[Class][i][0] = matches/dictClasses[Class][i][2]
       dictClasses[Class][i][2] = dictClasses[Class][i][2] - matches
-print(allClasses)
+
+for Class in allClasses:
+  for i in range(3):
+    matches = dictClasses[Class][i][0]
+    if matches>0:
+      dictClasses[Class][i][0] = matches*100
+
+allClasses = sorted(allClasses)
+
+list50 = [dictClasses[Class][0] for Class in allClasses]
+list75 = [dictClasses[Class][1] for Class in allClasses]
+list90 = [dictClasses[Class][2] for Class in allClasses]
+
+pd.options.display.float_format = '{:,.4f}'.format
+pd.set_option('display.max_rows', 50)
+ClasswiseStat50 = pd.DataFrame(list50, columns=['точность','Ложных тревог','Пропущено'], index=allClasses)
+ClasswiseStat75 = pd.DataFrame(list75, columns=['точность','Ложных тревог','Пропущено'], index=allClasses)
+ClasswiseStat90 = pd.DataFrame(list90, columns=['точность','Ложных тревог','Пропущено'], index=allClasses)
+
+import matplotlib.pyplot as plt
+import pandas as pd
+from pandas.plotting import table
+
+ax = plt.subplot(111, frame_on=False)
+ax.xaxis.set_visible(False) 
+ax.yaxis.set_visible(False)  
+table(ax, ClasswiseStat90)
+
+"""5) Выполняем качественный анализ работы сети на снимках, полученных с
+беспилотных летательных аппаратов
+"""
+
